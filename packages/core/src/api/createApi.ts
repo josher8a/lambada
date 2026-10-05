@@ -56,7 +56,8 @@ type CreateApiArgs = {
 }
 
 export const IsEndpointsArgs = (route: LambadaCreatorReturn): route is LambadaEndpointArgs<any, any> => {
-    return typeof (route as LambadaEndpointArgs<any, any>).callbackDefinition !== 'undefined'
+    const endpoint = route as LambadaEndpointArgs<any, any>
+    return endpoint.callbackDefinition !== undefined || endpoint.useBundle !== undefined
 }
 export const IsProxy = (route: LambadaCreatorReturn): route is ProxyIntegrationArgs => {
     return typeof (route as ProxyIntegrationArgs).targetUri !== 'undefined'

@@ -38,17 +38,6 @@ export type LambadaEndpointArgs<
     name?: string,
     path: string,
     method: HTTP_METHODS,
-    /**
-     * Deploy a pre-built bundle instead of a Pulumi-serialized closure: the folder to upload and the
-     * `file.export` to invoke. `callbackDefinition` is ignored when this is set — the handler comes from
-     * the bundle — but is still required, so an endpoint can carry both and fall back when no bundle was
-     * built for it.
-     *
-     * Building is the service's job (its own build step), not Pulumi's: an artifact on disk keeps
-     * `pulumi preview` pure and the upload reproducible.
-     */
-    useBundle?: LambdaFolder,
-    callbackDefinition: EmbroideryCallback,
     resources?: LambadaResourceRequest<TNames>,
     extraHeaders?: {},
     cache?: {
@@ -78,7 +67,20 @@ export type LambadaEndpointArgs<
         lambdaAuthorizer?: LambdaAuthorizer
     },
     options?: LambdaOptions
-}
+} & EndpointHandler
+
+/**
+ * Deploy a pre-built bundle instead of a Pulumi-serialized closure: the folder to upload and the
+ * `file.export` to invoke. An endpoint given `useBundle` needs no `callbackDefinition`; one carrying
+ * both deploys the bundle. A `callbackDefinition` alone is what an endpoint falls back to when the
+ * stack's `bundles` hold none for it.
+ *
+ * Building is the service's job (its own build step), not Pulumi's: an artifact on disk keeps
+ * `pulumi preview` pure and the upload reproducible.
+ */
+type EndpointHandler =
+    | { useBundle: LambdaFolder, callbackDefinition?: EmbroideryCallback }
+    | { useBundle?: LambdaFolder, callbackDefinition: EmbroideryCallback }
 
 export const createEndpointSimpleCors = <T>(
     name: string,
@@ -152,7 +154,8 @@ export const createEndpointSimpleCompat = (args: LambadaEndpointArgs<any, any>, 
     if (webhook?.wrapInQueue) {
         // No bundle: the lambda behind the queue is lambada's glue, not this callback, so an
         // artifact built from the declaration would receive the raw SQS event.
-        return createWebhook(args, context)
+        if (!callbackDefinition) throw new Error(`${name} is a webhook, which runs its callbackDefinition; a bundle cannot take its place`)
+        return createWebhook({ ...args, callbackDefinition }, context)
     }
     else if (useBundle) {
         // The bundle cannot capture a Pulumi closure, so the wrapper config travels as env vars.
@@ -171,6 +174,7 @@ export const createEndpointSimpleCompat = (args: LambadaEndpointArgs<any, any>, 
         )
     }
     else {
+        if (!callbackDefinition) throw new Error(`${name} has neither a callbackDefinition nor a bundle to deploy`)
         return createEndpoint<Request, Response>(
             name, context,
             path, method, createCallback({ callbackDefinition, context, extraHeaders, options, cacheControl: args.cache?.control }), [],
